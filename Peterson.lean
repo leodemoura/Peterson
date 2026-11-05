@@ -5,6 +5,8 @@ Two processes share three variables: `flag[0]`, `flag[1]`, and `turn`.
 `flag[i] = true` means "process `i` wants to enter the critical section".
 `turn` decides who goes first when both want to enter.
 
+Key idea: "I want in, but you go first."
+
 Each process runs the program below. The label on the left is the value of the
 process's program counter (`PC`). The name on the right is the transition (`Step`
 constructor) that executes that line. Each line is one atomic step.
@@ -331,5 +333,17 @@ Try other schedules! -/
 `rfl` works because Lean can compute `run` on a concrete schedule. -/
 example : ∃ s, Reachable s ∧ s.pc[0] = .critical :=
   ⟨_, Reachable.init.run [0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0], rfl⟩
+
+/-
+Exercise.
+Prove that "I want in, and I go first." doesn't work.
+
+Here is the issue:
+1. Process 0 raises its flag and sets turn := 0.
+   Process 1's flag is down, so process 0 enters the critical section.
+2. Process 1 now arrives. It raises its flag and sets turn := 1.
+3. Process 1 sees that the turn is its own, so it enters too. Both processes are now in the critical section.
+
+-/
 
 end Peterson
