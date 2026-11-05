@@ -38,7 +38,8 @@ covers more behaviors.
 -/
 namespace Peterson
 
-attribute [grind =] Vector.getElem_mk
+/- Instruct `grind` to use the following helper theorem -/
+attribute [local grind =] Vector.getElem_mk
 
 /-- The program counter: the line each process is about to execute. -/
 inductive PC where
@@ -151,17 +152,8 @@ From `init`, either process can move first. This nondeterminism models the
 scheduler, which may run the processes in any order. -/
 theorem step_not_det : ¬ Deterministic Step := by
   intro h
-  let s₁ := init
-  let s₂ : State := { pc   := #v[.trying, .idle]
-                      flag := #v[true, false]
-                      turn := 0 }
-  let s₃ : State := { pc   := #v[.idle, .trying]
-                      flag := #v[false, true]
-                      turn := 0 }
-  replace h := h s₁ s₂ s₃
-  replace h := h (.raise s₁ 0 rfl)
-  replace h := h (.raise s₁ 1 rfl)
-  simp [s₂, s₃] at h
+  have := h _ _ _ (.raise init 0 rfl) (.raise init 1 rfl)
+  simp [init] at this
 
 /-- The states the system can reach from `init` in zero or more steps. -/
 inductive Reachable : State → Prop where
@@ -303,10 +295,7 @@ theorem next_sound : Step s (next s pid) := by
 /-- ...and every step is a `next` move of some process.
 Together: `Step s t ↔ ∃ pid, next s pid = t`. -/
 theorem next_complete (h : Step s₁ s₂) : ∃ pid, next s₁ pid = s₂ := by
-  cases h with
-  | raise pid | yield pid | flagDown pid | flagUp pid
-  | myTurn pid | notMyTurn pid | exclusive pid | exit pid =>
-    exists pid <;> grind [next]
+  cases h <;> exists ‹PId› <;> grind [next]
 
 /-- Run a *schedule*: the list says which process moves at each step. -/
 def run (s : State) : List PId → State
@@ -322,7 +311,7 @@ instance : ToString PC where
     | .critical => "critical"
     | .finishing => "finishing"
 
-/-- States print as `pc[0][flag[0]], pc[1][flag[1]], turn`. -/
+/-- States print as `pc = [...], flag = [..], trun = ..`-/
 instance : ToString State where
   toString s := s!"pc = {s.pc.toList}, flag = {s.flag.toList}, turn = {s.turn}"
 
