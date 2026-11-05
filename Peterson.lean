@@ -38,6 +38,8 @@ covers more behaviors.
 -/
 namespace Peterson
 
+attribute [grind =] Vector.getElem_mk
+
 /-- The program counter: the line each process is about to execute. -/
 inductive PC where
   | idle
@@ -53,16 +55,22 @@ and reuses everything it knows about `Fin 2` (numerals, `decide`, ...). -/
 abbrev PId := Fin 2
 
 /-- The other process. The `@[grind]` attribute lets `grind` use its equations. -/
-@[grind]
+@[local grind]
 def PId.other : PId → PId
   | 0 => 1
   | 1 => 0
 
 example (pid : PId) : pid.other ≠ pid := by
-  cases pid <;> grind
+  grind
 
 example (pid : PId) : pid.other.other = pid := by
-  cases pid <;> grind
+  grind
+
+/-- A process identifier is `0` or `1`. `grind` reasons about `pid` symbolically,
+and does not know *yet* that `Fin 2` has only two values. This theorem tells it.
+`@[grind]` uses the pattern `p.val`, so whenever `↑pid` appears in a goal,
+`grind` adds this disjunction and splits on it. -/
+@[local grind] theorem PId.val_cases (p : PId) : p.val = 0 ∨ p.val = 1 := by lia
 
 /-- The global state: the program counter of each process, plus the shared variables. -/
 structure State where
@@ -71,6 +79,7 @@ structure State where
   turn : PId
 
 /-- Initial state: both processes idle, no flag raised. -/
+@[local grind]
 def init : State :=
   { pc   := #v[.idle, .idle]
     flag := #v[false, false]
@@ -87,14 +96,20 @@ that line. The other process does not move.
 `{ s with pc := ... }` is the state `s` with only the listed fields changed.
 -/
 inductive Step : State → State → Prop where
+  /- idle:  flag[pid] := true; -/
   | raise (s : State) (pid : PId) :
     s.pc[pid] = .idle →
     Step s { s with pc   := s.pc.set pid .trying
                     flag := s.flag.set pid true }
+  /- trying: turn := pid.other; -/
   | yield (s : State) (pid : PId) :
     s.pc[pid] = .trying →
     Step s { s with pc   := s.pc.set pid .waiting
                     turn := pid.other }
+  /- waiting:
+     if !flag[pid.other] then goto critical  -- flagDown
+     else goto checking                      -- flagUp
+  -/
   | flagDown (s : State) (pid : PId) :
     s.pc[pid] = .waiting →
     s.flag[pid.other] = false →
@@ -103,6 +118,10 @@ inductive Step : State → State → Prop where
     s.pc[pid] = .waiting →
     s.flag[pid.other] = true →
     Step s { s with pc := s.pc.set pid .checking }
+  /- checking:
+     if turn = 0 then goto critical  -- myTurn
+     else goto waiting               -- notMyTurn
+  -/
   | myTurn (s : State) (pid : PId) :
     s.pc[pid] = .checking →
     s.turn = pid →
@@ -111,15 +130,21 @@ inductive Step : State → State → Prop where
     s.pc[pid] = .checking →
     s.turn ≠ pid →
     Step s { s with pc := s.pc.set pid .waiting }
+  /- critical: <do something critical> -/
   | exclusive (s : State) (pid : PId) :
     s.pc[pid] = .critical →
     Step s { s with pc := s.pc.set pid .finishing }
+  /-
+    flag[pid] := false;
+    goto idle;
+  -/
   | exit (s : State) (pid : PId) :
     s.pc[pid] = .finishing →
     Step s { s with pc   := s.pc.set pid .idle
                     flag := s.flag.set pid false }
 
-def Deterministic (R : α → α → Prop) : Prop := ∀ s₁ s₂ s₃, R s₁ s₂ → R s₁ s₃ → s₂ = s₃
+def Deterministic (R : α → α → Prop) : Prop :=
+  ∀ s₁ s₂ s₃, R s₁ s₂ → R s₁ s₃ → s₂ = s₃
 
 /-- `Step` is a relation, not a function: a state can have several successors.
 From `init`, either process can move first. This nondeterminism models the
@@ -151,10 +176,7 @@ theorem induction (P : State → Prop)
     (h₁ : ∀ s t, P s → Step s t → P t) :
     ∀ s, Reachable s → P s := by
   intro s h
-  induction h with
-  | init => exact h₀
-  | step s₁ s₂ hr hs ih =>
-    apply h₁; exact ih; assumption
+  induction h <;> grind
 
 /-!
 ## Mutual exclusion
@@ -164,6 +186,7 @@ the same time.
 -/
 
 /-- Mutual exclusion: the two processes are never both in the critical section. -/
+@[local grind]
 def Safe (s : State) : Prop :=
   ¬ (s.pc[0] = .critical ∧ s.pc[1] = .critical)
 
@@ -180,6 +203,7 @@ Checking it is routine, and `grind` does it for us.
 -/
 
 /-- `flag[i]` is raised exactly when process `i` is outside `idle`. -/
+@[local grind]
 def FlagInv (s : State) (i : PId) : Prop :=
   s.flag[i] = true ↔ s.pc[i] ≠ .idle
 
@@ -188,38 +212,44 @@ then the turn belongs to `i`.
 
 The `.critical` case is what gives mutual exclusion: if both processes were
 critical, `TurnInv s 0` and `TurnInv s 1` would give `turn = 0` and `turn = 1`. -/
+@[local grind]
 def TurnInv (s : State) (i : PId) : Prop :=
   s.pc[i] = .critical →
   (s.pc[i.other] = .waiting ∨ s.pc[i.other] = .checking ∨ s.pc[i.other] = .critical) →
   s.turn = i
 
 /-- The inductive invariant: `FlagInv` and `TurnInv` for both processes. -/
+@[local grind]
 def Inv (s : State) : Prop :=
   FlagInv s 0 ∧ FlagInv s 1 ∧ TurnInv s 0 ∧ TurnInv s 1
 
 /-- `Inv` holds initially. `init` is a concrete state, so `decide` can just check it. -/
 theorem inv_init : Inv init := by
-  unfold Inv FlagInv TurnInv; decide
+  grind
 
 /-- Every step preserves `Inv`. We split on which transition was taken and which
 process took it. With a concrete process (`0` or `1`), `grind` can compute
 `pid.other` and the updated vectors, and finish each case. -/
 theorem inv_step {s t : State} : Inv s → Step s t → Inv t := by
   intro h hs
-  cases hs with
-  | raise pid | yield pid | flagDown pid | flagUp pid
-  | myTurn pid | notMyTurn pid | exclusive pid | exit pid =>
-    match pid with
-    | 0 | 1 => grind [Inv, FlagInv, TurnInv]
+  cases hs <;> grind
 
 /-- `Inv` is stronger than `Safe`. -/
 theorem inv_safe {s : State} : Inv s → Safe s := by
-  grind [Inv, TurnInv, Safe]
+  grind
 
 /-- Mutual exclusion holds in every reachable state:
 `Inv` is an inductive invariant, and it implies `Safe`. -/
 theorem safety : ∀ s, Reachable s → Safe s := fun s h =>
   inv_safe (induction Inv inv_init (fun _ _ => inv_step) s h)
+
+/-- The state from the comment above is not reachable: it violates `TurnInv s 0`.
+Process 0 is critical and process 1 is `checking`, so `Inv` demands `turn = 0`,
+but `turn = 1`. Every reachable state satisfies `Inv`, so this one is not reachable. -/
+example : ¬ Reachable { pc := #v[.critical, .checking], flag := #v[true, true], turn := 1 } := by
+  intro h
+  have := induction Inv inv_init (fun _ _ => inv_step) _ h
+  grind
 
 /-
 `e |>.f args` means `(e).f args`
@@ -294,9 +324,9 @@ instance : ToString PC where
 
 /-- States print as `pc[0][flag[0]], pc[1][flag[1]], turn`. -/
 instance : ToString State where
-  toString s := s!"{s.pc[0]}[{s.flag[0]}], {s.pc[1]}[{s.flag[1]}], {s.turn}"
+  toString s := s!"pc = {s.pc.toList}, flag = {s.flag.toList}, turn = {s.turn}"
 
-#eval run init []  -- idle[false], idle[false], 0
+#eval run init []  -- pc = [idle, idle], flag = [false, false], turn = 0
 
 /-- Every schedule from a reachable state ends in a reachable state. -/
 theorem Reachable.run (h : Reachable s) : ∀ ps, Reachable (run s ps)
@@ -306,7 +336,7 @@ theorem Reachable.run (h : Reachable s) : ∀ ps, Reachable (run s ps)
 /- Both processes compete. Process 0 yields last, so `turn = 1` and process 1 wins.
 Process 0 sees `turn = 1` and goes back to `waiting`; it enters only after process 1 leaves.
 Try other schedules! -/
-#eval run init [0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0]  -- critical[true], idle[false], 1
+#eval run init [0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0]  -- pc = [critical, idle], flag = [true, false], turn = 1
 
 /-- The same schedule as a proof that process 0 can reach the critical section.
 `rfl` works because Lean can compute `run` on a concrete schedule. -/
