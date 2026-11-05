@@ -146,8 +146,9 @@ inductive Step : State → State → Prop where
     Step s { s with pc   := s.pc.set pid .idle
                     flag := s.flag.set pid false }
 
+/-- Relation `R` is deterministic. -/
 def Deterministic (R : α → α → Prop) : Prop :=
-  ∀ s₁ s₂ s₃, R s₁ s₂ → R s₁ s₃ → s₂ = s₃
+  ∀ a b c, R a b → R a c → b = c
 
 /-- `Step` is a relation, not a function: a state can have several successors.
 From `init`, either process can move first. This nondeterminism models the
@@ -157,14 +158,22 @@ theorem step_not_det : ¬ Deterministic Step := by
   have := h _ _ _ (.raise init 0 rfl) (.raise init 1 rfl)
   simp [init] at this
 
-/-- The states the system can reach from `init` in zero or more steps. -/
+/--
+The states the system can reach from `init` in zero or more steps.
+
+**Note**: this definition is specialized to `init` and `Step`.
+A generic version would take them as parameters:
+`inductive Reachable (init : σ) (step : σ → σ → Prop) : σ → Prop`.
+-/
 inductive Reachable : State → Prop where
   | init : Reachable init
   | step : (s₁ s₂ : State) → Reachable s₁ → Step s₁ s₂ → Reachable s₂
 
-/-- The main proof principle. To show that `P` holds in every reachable state,
+/--
+The main proof principle. To show that `P` holds in every reachable state,
 show that `P` holds initially (`h₀`) and that every step preserves it (`h₁`).
-A property with these two properties is called an *inductive invariant*. -/
+A property with these two properties is called an *inductive invariant*.
+-/
 theorem induction (P : State → Prop)
     (h₀ : P init)
     (h₁ : ∀ s t, P s → Step s t → P t) :
@@ -201,7 +210,8 @@ Checking it is routine, and `grind` does it for us.
 def FlagInv (s : State) (i : PId) : Prop :=
   s.flag[i] = true ↔ s.pc[i] ≠ .idle
 
-/-- If `i` is in the critical section and the other process already yielded,
+/--
+If `i` is in the critical section and the other process already yielded,
 then the turn belongs to `i`.
 
 The `.critical` case is what gives mutual exclusion: if both processes were
